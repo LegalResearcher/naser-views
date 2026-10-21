@@ -1,8 +1,6 @@
 name: Naser Views
 
 on:
-  schedule:
-    - cron: "10,20,45 * * * *"
   workflow_dispatch:
 
 permissions:
