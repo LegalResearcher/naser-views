@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
+from account_pause import is_paused
 from main import (
     discover_new_links,
     load_previous_batch,
@@ -81,9 +82,16 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(sender.calls, batch[:5])
         self.assertEqual(pending_links(batch, 1, self.state), batch[5:])
 
-    def test_fatal_result_does_not_retry_link_on_same_account(self):
+    def test_normal_link_failure_does_not_pause_account_processing(self):
+        sender = FakeSender(["fail"])
+        self.assertEqual(run_browser_send(sender, self.state, 2, [self.links[0]]), 0)
+        self.assertFalse(is_paused(self.state))
+
+    def test_fatal_result_pauses_account_and_does_not_process_following_links(self):
         sender = FakeSender(["fatal"])
-        self.assertEqual(run_browser_send(sender, self.state, 5, [self.links[0]]), 1)
+        self.assertEqual(run_browser_send(sender, self.state, 5, [self.links[0], self.links[1]]), 1)
+        self.assertEqual(sender.calls, [self.links[0]])
+        self.assertTrue(is_paused(self.state))
         self.assertEqual(pending_links([self.links[0]], 5, self.state), [])
         self.assertEqual(pending_links([self.links[0]], 1, self.state), [self.links[0]])
 

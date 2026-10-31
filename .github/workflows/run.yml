@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
   id-token: write
 
 concurrency:
@@ -90,6 +91,11 @@ jobs:
           SITE_USERNAME_3: ${{ secrets.SITE_USERNAME_3 }}
           SITE_PASSWORD_3: ${{ secrets.SITE_PASSWORD_3 }}
         run: python main.py
+      - name: Pause scheduled workflow after account failure
+        if: ${{ always() && steps.process.outputs.account_fatal == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT repos/${{ github.repository }}/actions/workflows/run-standalone.yml/disable
 
       - name: Complete independent queue job
         if: ${{ always() && steps.claim.outputs.process == 'true' }}
