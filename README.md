@@ -1,6 +1,6 @@
 # Naser Views
 
-يسحب منشورات قناة `@muen2025` ويعالج روابطها مباشرة عبر workflow مستقل، دون المرور بطابور Other.
+يسحب منشورات قناة `@muen2025` ويعالج روابطها مباشرة عبر GitHub Actions؛ التشغيل الرئيسي وإعادة الرابط المحدد لا يعتمدان على طابور Other أو OIDC.
 جدولة Supabase المستقلة مفعّلة لاستدعاء `run-standalone.yml` بفاصل فعلي 60 دقيقة (يُفحص الاستحقاق كل دقيقة، وقد يتأخر الإرسال حتى دقيقة عن الموعد).
 
 ## الإعداد
@@ -9,7 +9,8 @@
    - `SITE_USERNAME_2` و`SITE_PASSWORD_2` — بيانات الحساب الثاني
    - `SITE_USERNAME_3` و`SITE_PASSWORD_3` — بيانات الحساب الثالث
 2. في Supabase Vault أضف سر GitHub باسم `github_actions_token`، ويجب أن يملك صلاحية تشغيل Actions للمستودع.
-3. تشغيل مباشر يدوي: تبويب Actions > Naser Views Standalone > Run workflow. تبقى workflows طابور Other منفصلة.
+3. تشغيل الروابط الجديدة يدويًا: Actions > Naser Views أو Naser Views Standalone > Run workflow.
+4. إعادة رابط محدد يدويًا: Actions > Naser Views - Manual Link Retry.
 
 لا يمكن التحقق من وجود أسرار Actions في إعدادات المستودع من بيئة التطوير الحالية؛ يلزم التأكد من إضافة الأسرار الستة بالأسماء أعلاه داخل إعدادات المستودع. لا تُحفظ قيمها أو تُطبع.
 

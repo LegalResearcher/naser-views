@@ -1,34 +1,12 @@
 name: Naser Views
-run-name: Other queue ${{ inputs.queue_id || github.run_id }}
+run-name: Naser Views direct (${{ github.run_id }})
 
 on:
   workflow_dispatch:
-    inputs:
-      link:
-        description: "Optional link for a manually requested task"
-        required: false
-        default: ""
-        type: string
-      queue_id:
-        description: "Independent queue job id"
-        required: false
-        default: ""
-        type: string
-      fencing_token:
-        description: "Independent queue fencing token"
-        required: false
-        default: ""
-        type: string
-      task_type:
-        description: "Independent queue task type"
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: write
   actions: write
-  id-token: write
 
 concurrency:
   group: naser-views
@@ -41,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -51,38 +31,9 @@ jobs:
         run: |
           pip install requests playwright
           playwright install --with-deps chromium
-
-      - name: Sync latest main before account selection
-        run: |
-          git fetch origin main
-          git reset --hard origin/main
-
-      - name: Queue manual request
-        if: ${{ inputs.queue_id == '' }}
-        env:
-          OTHER_TASK_TYPE: manual_run
-          TARGET_LINK: ${{ inputs.link }}
-        run: python other_queue.py enqueue
-      - name: Claim independent queue job
-        id: claim
-        if: ${{ inputs.queue_id != '' }}
-        env:
-          OTHER_QUEUE_ID: ${{ inputs.queue_id }}
-          OTHER_FENCING_TOKEN: ${{ inputs.fencing_token }}
-          OTHER_TASK_TYPE: ${{ inputs.task_type }}
-          TARGET_LINK: ${{ inputs.link }}
-        run: python other_queue.py claim
-      - name: Start independent queue heartbeat
-        if: ${{ steps.claim.outputs.process == 'true' }}
-        env:
-          OTHER_QUEUE_ID: ${{ inputs.queue_id }}
-          OTHER_FENCING_TOKEN: ${{ inputs.fencing_token }}
-        run: |
-          nohup python other_queue.py heartbeat > /tmp/other-queue-heartbeat.log 2>&1 &
-          echo $! > /tmp/other-queue-heartbeat.pid
-      - name: Run script
+          sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Run script directly
         id: process
-        if: ${{ steps.claim.outputs.process == 'true' }}
         env:
           SITE_USERNAME_1: ${{ secrets.SITE_USERNAME_1 }}
           SITE_PASSWORD_1: ${{ secrets.SITE_PASSWORD_1 }}
@@ -90,24 +41,15 @@ jobs:
           SITE_PASSWORD_2: ${{ secrets.SITE_PASSWORD_2 }}
           SITE_USERNAME_3: ${{ secrets.SITE_USERNAME_3 }}
           SITE_PASSWORD_3: ${{ secrets.SITE_PASSWORD_3 }}
-        run: python main.py
+        run: xvfb-run -a --server-args="-screen 0 1440x900x24" python main.py
       - name: Pause scheduled workflow after account failure
         if: ${{ always() && steps.process.outputs.account_fatal == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh api -X PUT repos/${{ github.repository }}/actions/workflows/run-standalone.yml/disable
 
-      - name: Complete independent queue job
-        if: ${{ always() && steps.claim.outputs.process == 'true' }}
-        env:
-          OTHER_QUEUE_ID: ${{ inputs.queue_id }}
-          OTHER_FENCING_TOKEN: ${{ inputs.fencing_token }}
-          OTHER_SUCCESS: ${{ steps.process.outcome == 'success' }}
-        run: |
-          if [ -f /tmp/other-queue-heartbeat.pid ]; then kill "$(cat /tmp/other-queue-heartbeat.pid)" || true; fi
-          python other_queue.py complete
       - name: Commit state
-        if: ${{ always() && steps.claim.outputs.process == 'true' }}
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -116,6 +58,6 @@ jobs:
             echo "No state changes."
             exit 0
           fi
-          git commit -m "chore: update state"
-          git pull --rebase
-          git push
+          git commit -m "chore: update state from direct run"
+          git pull --rebase origin main
+          git push origin HEAD:main
