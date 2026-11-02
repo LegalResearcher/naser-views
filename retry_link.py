@@ -4,7 +4,6 @@ import sys
 
 from browser_sender import BrowserSender
 from account_rotation import select_account
-from account_pause import is_paused, pause_account_processing
 from processing_state import (
     MAX_SUCCESSES_PER_LINK,
     can_process,
@@ -33,8 +32,7 @@ def process_manual_retry(link, sender, state_dir=STATE_DIR):
 
     status = sender(link)
     if status == "fatal":
-        pause_account_processing(state_dir, "login_account_or_balance_failure")
-        log("⏹️ توقف: تحقق من بيانات الدخول أو الرصيد.")
+        log("⏹️ فشلت محاولة تسجيل الدخول؛ لن يوقف هذا التشغيل المحاولات اليدوية أو التشغيلات التالية.")
         return 1
     _, result = record_result(link, status, state_dir, successes, failures)
     if result == "success":
@@ -47,9 +45,6 @@ def process_manual_retry(link, sender, state_dir=STATE_DIR):
 
 
 def main():
-    if is_paused(STATE_DIR):
-        log("⏸️ المعالجة متوقفة يدويًا؛ أصلح الحساب/الرصيد ثم أزل state/account_pause.json وأعد تفعيل workflow يدويًا.")
-        return 1
     link = os.environ.get("TARGET_LINK", "").strip()
     try:
         account_number, username, password = select_account(STATE_DIR)

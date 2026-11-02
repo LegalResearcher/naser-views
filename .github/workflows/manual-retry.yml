@@ -10,7 +10,6 @@ on:
         type: string
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: naser-views
@@ -45,11 +44,6 @@ jobs:
           SITE_PASSWORD_3: ${{ secrets.SITE_PASSWORD_3 }}
           TARGET_LINK: ${{ inputs.link }}
         run: python retry_link.py
-      - name: Pause scheduled workflow after account failure
-        if: ${{ always() && steps.process.outputs.account_fatal == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api -X PUT repos/${{ github.repository }}/actions/workflows/run-standalone.yml/disable
       - name: Commit state
         if: always()
         run: |

@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: naser-views
@@ -42,12 +41,6 @@ jobs:
           SITE_USERNAME_3: ${{ secrets.SITE_USERNAME_3 }}
           SITE_PASSWORD_3: ${{ secrets.SITE_PASSWORD_3 }}
         run: xvfb-run -a --server-args="-screen 0 1440x900x24" python main.py
-      - name: Pause scheduled workflow after account failure
-        if: ${{ always() && steps.process.outputs.account_fatal == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api -X PUT repos/${{ github.repository }}/actions/workflows/run-standalone.yml/disable
-
       - name: Commit state
         if: always()
         run: |

@@ -3,7 +3,6 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
-from account_pause import is_paused
 from main import (
     discover_new_links,
     load_previous_batch,
@@ -85,13 +84,13 @@ class ProcessingTests(unittest.TestCase):
     def test_normal_link_failure_does_not_pause_account_processing(self):
         sender = FakeSender(["fail"])
         self.assertEqual(run_browser_send(sender, self.state, 2, [self.links[0]]), 0)
-        self.assertFalse(is_paused(self.state))
+        self.assertFalse(os.path.exists(os.path.join(self.state, "account_pause.json")))
 
-    def test_fatal_result_pauses_account_and_does_not_process_following_links(self):
+    def test_fatal_result_stops_only_current_run_without_persisting_pause(self):
         sender = FakeSender(["fatal"])
         self.assertEqual(run_browser_send(sender, self.state, 5, [self.links[0], self.links[1]]), 1)
         self.assertEqual(sender.calls, [self.links[0]])
-        self.assertTrue(is_paused(self.state))
+        self.assertFalse(os.path.exists(os.path.join(self.state, "account_pause.json")))
         self.assertEqual(pending_links([self.links[0]], 5, self.state), [])
         self.assertEqual(pending_links([self.links[0]], 1, self.state), [self.links[0]])
 

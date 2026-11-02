@@ -6,7 +6,6 @@ import sys
 import time
 import requests
 from account_rotation import select_account
-from account_pause import is_paused, pause_account_processing
 from processing_state import (
     can_process,
     load_account_history,
@@ -136,8 +135,7 @@ def run_browser_send(sender, state_dir=STATE_DIR, account_number=1, links=None):
         mark_account_handled(link, account_number, state_dir)
         status = sender(link)
         if status == "fatal":
-            pause_account_processing(state_dir, "login_account_or_balance_failure")
-            log("⏹️ توقف: تعذر إكمال المعالجة بسبب حالة الحساب أو الرصيد.")
+            log("⏹️ توقف هذا التشغيل بسبب تعذر الحساب؛ ستستمر التشغيلات التالية كالمعتاد.")
             return 1
         tries += 1
         if status == "ok":
@@ -149,9 +147,6 @@ def run_browser_send(sender, state_dir=STATE_DIR, account_number=1, links=None):
 
 
 def main():
-    if is_paused(STATE_DIR):
-        log("⏸️ المعالجة متوقفة يدويًا؛ أصلح الحساب/الرصيد ثم أزل state/account_pause.json وأعد تفعيل workflow يدويًا.")
-        return 1
     try:
         new_links = discover_new_links()
     except Exception as error:
