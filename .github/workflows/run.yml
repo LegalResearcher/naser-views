@@ -1,4 +1,4 @@
-name: Hasad Views
+name: Naser Views
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: hasad-views
+  group: naser-views
   cancel-in-progress: false
 
 jobs:

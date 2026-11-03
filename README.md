@@ -1,4 +1,4 @@
-# Hasad Views
+# Naser Views
 
 يسحب منشورات قناة `@muen2025` ويرسل طلبات المشاهدات للروابط المؤهلة في الطابور عبر نموذج الموقع باستخدام Playwright.
 
@@ -8,8 +8,8 @@
 - الحساب 2: `SITE_USERNAME_2` و`SITE_PASSWORD_2`
 - الحساب 3: `SITE_USERNAME_3` و`SITE_PASSWORD_3`
 
-تشغيل رئيسي يدوي: Actions > Hasad Views > Run workflow.
-إعادة محاولة رابط محدد: Actions > Hasad Views - Manual Link Retry > Run workflow.
+تشغيل رئيسي يدوي: Actions > Naser Views > Run workflow.
+إعادة محاولة رابط محدد: Actions > Naser Views - Manual Link Retry > Run workflow.
 
 ## كيف يعمل
 - في كل تشغيل يجلب جميع الروابط التي لم يسبق اكتشافها ويعالج كل رابط منها مرة واحدة فقط.
