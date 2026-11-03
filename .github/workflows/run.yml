@@ -1,5 +1,4 @@
-name: Naser Views
-run-name: Naser Views direct (${{ github.run_id }})
+name: Hasad Views
 
 on:
   workflow_dispatch:
@@ -8,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: naser-views
+  group: hasad-views
   cancel-in-progress: false
 
 jobs:
@@ -30,9 +29,8 @@ jobs:
         run: |
           pip install requests playwright
           playwright install --with-deps chromium
-          sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Run script directly
-        id: process
         env:
           SITE_USERNAME_1: ${{ secrets.SITE_USERNAME_1 }}
           SITE_PASSWORD_1: ${{ secrets.SITE_PASSWORD_1 }}
@@ -40,7 +38,8 @@ jobs:
           SITE_PASSWORD_2: ${{ secrets.SITE_PASSWORD_2 }}
           SITE_USERNAME_3: ${{ secrets.SITE_USERNAME_3 }}
           SITE_PASSWORD_3: ${{ secrets.SITE_PASSWORD_3 }}
-        run: xvfb-run -a --server-args="-screen 0 1440x900x24" python main.py
+        run: python main.py
+
       - name: Commit state
         if: always()
         run: |
@@ -51,6 +50,6 @@ jobs:
             echo "No state changes."
             exit 0
           fi
-          git commit -m "chore: update state from direct run"
+          git commit -m "chore: update state from standalone run"
           git pull --rebase origin main
           git push origin HEAD:main

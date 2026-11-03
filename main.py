@@ -1,16 +1,17 @@
-import json
 import os
-import random
 import re
 import sys
+import tempfile
 import time
+
 import requests
-from account_rotation import select_account
+
+from account_rotation import select_rotating_account
+from browser_sender import BrowserSender
 from processing_state import (
     MAX_FAILURES_PER_LINK,
     MAX_SUCCESSES_PER_LINK,
     can_process,
-    load_account_history,
     load_failures,
     load_successes,
     record_result,
@@ -19,17 +20,17 @@ from processing_state import (
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATE_DIR = os.path.join(ROOT, "state")
 os.makedirs(STATE_DIR, exist_ok=True)
+LINKS_PATH = os.path.join(STATE_DIR, "telegram_links.txt")
 PROCESSED_PATH = os.path.join(STATE_DIR, "processed_links.txt")
 TARGET_CHANNEL = "muen2025"
-MAX_TRIES_PER_RUN = 5
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 }
 
 
-def log(msg):
-    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+def log(message):
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
 
 def read_lines(path):
@@ -39,179 +40,174 @@ def read_lines(path):
         return [line.strip() for line in file if line.strip()]
 
 
-def append_lines(path, lines):
-    existing = set(read_lines(path))
-    with open(path, "a", encoding="utf-8") as file:
-        for line in lines:
-            if line not in existing:
-                file.write(line + "\n")
-                existing.add(line)
-
-
-def load_previous_batch(state_dir=STATE_DIR):
-    path = os.path.join(state_dir, "previous_batch.json")
-    if not os.path.exists(path):
-        # ترحيل لمرة واحدة: كل الروابط المؤهلة من قائمة النظام السابق.
-        legacy_links = list(dict.fromkeys(read_lines(os.path.join(state_dir, "telegram_links.txt"))))
-        successes = load_successes(state_dir)
-        failures = load_failures(state_dir)
-        eligible = [link for link in legacy_links
-                    if can_process(link, state_dir, successes, failures)]
-        return eligible
+def write_lines(path, lines):
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, temp_path = tempfile.mkstemp(prefix=".state-", dir=directory, text=True)
     try:
-        with open(path, "r", encoding="utf-8") as file:
-            value = json.load(file)
-        if isinstance(value, list):
-            return list(dict.fromkeys(item for item in value if isinstance(item, str)))
-    except (OSError, ValueError):
-        pass
-    return []
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            for line in lines:
+                file.write(line + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
-def save_previous_batch(links, state_dir=STATE_DIR):
-    os.makedirs(state_dir, exist_ok=True)
-    path = os.path.join(state_dir, "previous_batch.json")
-    temporary = path + ".tmp"
-    with open(temporary, "w", encoding="utf-8") as file:
-        json.dump(list(dict.fromkeys(links)), file, ensure_ascii=False, indent=2)
-        file.write("\n")
-        file.flush()
-        os.fsync(file.fileno())
-    os.replace(temporary, path)
+def append_unique(path, links):
+    existing = read_lines(path)
+    known = set(existing)
+    additions = [link for link in links if link not in known]
+    if additions:
+        write_lines(path, existing + additions)
 
 
 def fetch_links():
-    """روابط المنشورات الظاهرة في القناة، من الأقدم إلى الأحدث."""
-    url = f"https://t.me/s/{TARGET_CHANNEL}"
-    response = requests.get(url, headers=HEADERS, timeout=30)
+    response = requests.get(
+        f"https://t.me/s/{TARGET_CHANNEL}", headers=HEADERS, timeout=30
+    )
     if response.status_code != 200:
-        raise RuntimeError(f"كود الحالة {response.status_code}")
-    pattern = rf"https://t\.me/{TARGET_CHANNEL}/(\d+)"
-    ids = sorted({int(number) for number in re.findall(pattern, response.text)})
+        raise RuntimeError(f"Telegram returned HTTP {response.status_code}")
+    ids = sorted({int(value) for value in re.findall(
+        rf"/{re.escape(TARGET_CHANNEL)}/(\d+)", response.text
+    )})
     return [f"https://t.me/{TARGET_CHANNEL}/{number}" for number in ids]
 
 
-def discover_new_links(state_dir=STATE_DIR, discovered=None):
-    """يسجل الروابط المكتشفة حديثاً ويعيدها مرة واحدة فقط."""
-    discovered = fetch_links() if discovered is None else discovered
-    processed_path = os.path.join(state_dir, "processed_links.txt")
-    known = set(read_lines(processed_path))
-    new_links = [link for link in discovered if link not in known]
-    append_lines(processed_path, new_links)
-    log(f"🆕 روابط جديدة: {len(new_links)}" if new_links else "🔎 لا توجد روابط جديدة.")
-    return list(dict.fromkeys(new_links))
+def pull_once():
+    discovered = fetch_links()
+    processed = set(read_lines(PROCESSED_PATH))
+    current_batch = [link for link in discovered if link not in processed]
+    if not current_batch:
+        pending = read_lines(LINKS_PATH)
+        if pending:
+            log(f"🔁 استكمال {len(pending)} روابط لم يصلها التنفيذ في تشغيل سابق.")
+            return pending
+        log("🔎 لا توجد روابط جديدة.")
+        return []
+
+    append_unique(LINKS_PATH, current_batch)
+    write_lines(PROCESSED_PATH, list(dict.fromkeys(read_lines(PROCESSED_PATH) + current_batch)))
+    log(f"🆕 عُثر على {len(current_batch)} رابط جديد؛ سيُعالج كل رابط مرة واحدة فقط.")
+    return current_batch
 
 
-def prepare_run_batch(new_links, state_dir=STATE_DIR):
-    """يحفظ الروابط الجديدة والدفعة السابقة بعد إزالة التكرار."""
-    previous = load_previous_batch(state_dir)
-    batch = list(dict.fromkeys(list(new_links) + previous))
-    save_previous_batch(batch, state_dir)
-    return batch
+def remove_from_queue(links):
+    selected = set(links)
+    remaining = [link for link in read_lines(LINKS_PATH) if link not in selected]
+    write_lines(LINKS_PATH, remaining)
 
 
-def post_id(link):
-    match = re.fullmatch(rf"https://t\.me/{re.escape(TARGET_CHANNEL)}/(\d+)", link)
-    return int(match.group(1)) if match else -1
-
-
-def newest_first(links):
-    return sorted(dict.fromkeys(links), key=post_id, reverse=True)
-
-
-def pending_links(links, state_dir=STATE_DIR, priority_links=None):
-    links = list(dict.fromkeys(links))
-    queued = set(links)
-    priority = newest_first(link for link in (priority_links or []) if link in queued)
-    priority_set = set(priority)
-    ordered_links = priority + [
-        link for link in newest_first(links) if link not in priority_set
-    ]
-    successes = load_successes(state_dir)
-    attempts = load_failures(state_dir)
-
-    if priority_links:
-        return [link for link in ordered_links
-                if can_process(link, state_dir, successes, attempts)]
-
-    unique_links = list(dict.fromkeys(ordered_links))
-    legacy_history = load_account_history(state_dir)
-    untried = [
-        link for link in unique_links
-        if (successes.get(link, 0) == 0
-            and attempts.get(link, 0) == 0
-            and not legacy_history.get(link)
-            and can_process(link, state_dir, successes, attempts))
-    ]
-    if untried:
-        return untried
-
-    for start in range(0, len(unique_links), MAX_TRIES_PER_RUN):
-        cohort = unique_links[start:start + MAX_TRIES_PER_RUN]
-        eligible = [
-            link for link in cohort
-            if can_process(link, state_dir, successes, attempts)
-        ]
-        if eligible:
-            return eligible
-    return []
-
-
-def run_browser_send(sender, state_dir=STATE_DIR, account_number=1, links=None,
-                    priority_links=None):
-    """يعالج الجديد أولاً، ثم غير المجرب، فمجموعات الأحدث حتى خمسة نجاحات."""
-    batch = load_previous_batch(state_dir) if links is None else list(dict.fromkeys(links))
-    queue = pending_links(batch, state_dir, priority_links)
-    if not queue:
-        log("💤 لا روابط متاحة ضمن الدفعة الحالية.")
+def run_browser_send(sender, links):
+    if not links:
+        log("💤 لا توجد روابط للتنفيذ.")
         return 0
-    log(f"📋 روابط مؤهلة: {len(queue)}؛ حد التشغيل {MAX_TRIES_PER_RUN} طلبات.")
-    successes = load_successes(state_dir)
-    attempts = load_failures(state_dir)
-    tries = 0
-    for link in queue:
-        if tries >= MAX_TRIES_PER_RUN:
+    failures = 0
+    processed_count = 0
+    for link in links:
+        log(f"معالجة الرابط مرة واحدة في هذه الدفعة: {link}")
+        processed_count += 1
+        try:
+            status = sender(link)
+        except Exception as error:
+            log(f"⚠️ تعذر تنفيذ الرابط ({type(error).__name__}: {error})")
+            status = "fail"
+        if status == "ok":
+            log("✅ نجح الرابط.")
+        elif status == "fatal":
+            log("⏹️ توقف: تحقق من بيانات الدخول أو الرصيد.")
+            failures += 1
             break
-        if tries > 0:
-            delay = random.uniform(40, 150)
-            log(f"انتظار {delay:.1f} ثانية قبل الطلب التالي.")
-            time.sleep(delay)
-        log(f"معالجة ({successes.get(link, 0)}/{MAX_SUCCESSES_PER_LINK} نجاح): {link}")
-        status = sender(link)
-        if status == "fatal":
-            log("⏹️ توقف هذا التشغيل بسبب تعذر الحساب؛ ستستمر التشغيلات التالية كالمعتاد.")
-            return 1
-        tries += 1
-        _, result = record_result(link, status, state_dir, successes, attempts)
-        if result == "success":
-            log(f"✅ نجاح الرابط: {successes.get(link, 0)}/{MAX_SUCCESSES_PER_LINK}.")
-        elif result == "failure_limit":
-            log(f"🚫 تم تخطي الرابط بعد {MAX_FAILURES_PER_LINK} إخفاقات.")
         else:
-            log("⚠️ فشلت محاولة الرابط؛ سيُجرّب مجددًا ضمن الحد المسموح.")
-    log(f"انتهى التشغيل بعد {tries} طلبات.")
-    return 0
+            log("⚠️ لم ينجح الطلب عبر الموقع.")
+            failures += 1
+    remove_from_queue(links[:processed_count])
+    log(f"انتهى التشغيل بعد معالجة {processed_count} روابط.")
+    return 1 if failures else 0
+
+
+def run_previous_links_until_five(sender, state_dir=None):
+    """إعادة دفع الروابط السابقة عند عدم ظهور روابط جديدة، مثل الجنوب."""
+    state_dir = STATE_DIR if state_dir is None else state_dir
+    processed_path = os.path.join(state_dir, "processed_links.txt")
+    queue_path = os.path.join(state_dir, "telegram_links.txt")
+    attempts = load_failures(state_dir)
+    successes = load_successes(state_dir)
+
+    # الأحدث أولًا، مع إبقاء روابط الطابور غير المنفذة ضمن الأولوية.
+    all_links = list(dict.fromkeys(
+        list(reversed(read_lines(processed_path)))
+        + list(reversed(read_lines(queue_path)))
+    ))
+    eligible = [
+        link for link in all_links
+        if can_process(link, state_dir, successes, attempts)
+    ]
+    if not eligible:
+        log("💤 لا توجد روابط سابقة مؤهلة للدفع.")
+        return 0
+
+    max_tries = 5
+    log(f"🔁 لا توجد روابط جديدة؛ استكمال الروابط السابقة حتى {MAX_SUCCESSES_PER_LINK} نجاحات.")
+    failures = 0
+    tries = 0
+    for link in eligible:
+        if tries >= max_tries:
+            break
+        tries += 1
+        log(f"معالجة سابقة ({successes.get(link, 0)}/{MAX_SUCCESSES_PER_LINK} نجاح): {link}")
+        try:
+            status = sender(link)
+        except Exception as error:
+            log(f"⚠️ تعذر تنفيذ الرابط ({type(error).__name__}: {error})")
+            status = "fail"
+
+        if status == "fatal":
+            log("⏹️ توقف: تحقق من بيانات الدخول أو الرصيد.")
+            return 1
+        if status == "ok":
+            _, result = record_result(link, status, state_dir, successes, attempts)
+            if result == "success":
+                log(f"✅ نجاح الرابط: {successes[link]}/{MAX_SUCCESSES_PER_LINK}.")
+        else:
+            _, result = record_result(link, status, state_dir, successes, attempts)
+            failures += 1
+            if result == "failure_limit":
+                log(f"🚫 تم تخطي الرابط بعد {MAX_FAILURES_PER_LINK} محاولات فاشلة.")
+
+    log(f"انتهى تشغيل الروابط السابقة بعد {tries} طلبات؛ الحد 5 طلبات.")
+    return 1 if failures else 0
+
 
 
 def main():
     try:
-        new_links = discover_new_links()
-    except Exception as error:
-        log(f"❌ خطأ في السحب: {type(error).__name__}: {error}")
-        new_links = []
-    batch = prepare_run_batch(new_links)
-    if not batch:
-        log("💤 لا توجد روابط جديدة أو في الدفعة السابقة.")
-        return 0
-    try:
-        account_number, username, password = select_account(STATE_DIR)
-    except (OSError, ValueError, RuntimeError) as error:
-        log(f"❌ تعذر اختيار حساب؛ تحقق من الأسرار الستة وحالة account_rotation.json: {error}")
+        account_number, username, password = select_rotating_account(os.environ, STATE_DIR)
+    except (OSError, ValueError) as error:
+        log(f"❌ تعذر اختيار الحساب؛ تحقق من الأسرار وحالة account_rotation.json: {error}")
         return 1
-    log(f"🚀 بدء التشغيل | القناة: @{TARGET_CHANNEL} | الحساب رقم {account_number}")
-    from browser_sender import BrowserSender
+
+    log(
+        f"🚀 تشغيل حصاد | القناة: @{TARGET_CHANNEL} | "
+        f"الحساب رقم {account_number} من 3"
+    )
+
+    # مثل منطق الجنوب: فشل/غياب السحب لا يمنع استكمال الطابور الموجود.
+    links = []
+    processed_before_pull = set(read_lines(PROCESSED_PATH))
+    fetch_failed = False
+    try:
+        links = pull_once()
+    except Exception as error:
+        fetch_failed = True
+        log(f"❌ تعذر سحب الروابط الجديدة ({type(error).__name__}: {error})")
+
     with BrowserSender(username, password) as sender:
-        return run_browser_send(sender, STATE_DIR, account_number, batch, priority_links=new_links)
+        has_new_links = any(link not in processed_before_pull for link in links)
+        if fetch_failed or not has_new_links:
+            return run_previous_links_until_five(sender)
+        return run_browser_send(sender, links)
 
 
 if __name__ == "__main__":

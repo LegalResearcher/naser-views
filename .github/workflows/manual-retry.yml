@@ -1,5 +1,4 @@
-name: Naser Views - Manual Link Retry
-run-name: Naser manual retry (${{ github.run_id }})
+name: Hasad Views - Manual Link Retry
 
 on:
   workflow_dispatch:
@@ -8,11 +7,12 @@ on:
         description: "رابط منشور محدد لإعادة تشغيله (100 مشاهدة مدفوعة)"
         required: true
         type: string
+
 permissions:
   contents: write
 
 concurrency:
-  group: naser-views
+  group: hasad-views
   cancel-in-progress: false
 
 jobs:
@@ -24,17 +24,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install browser dependency
         run: |
           pip install playwright
           playwright install --with-deps chromium
 
       - name: Retry selected link
-        id: process
         env:
           SITE_USERNAME_1: ${{ secrets.SITE_USERNAME_1 }}
           SITE_PASSWORD_1: ${{ secrets.SITE_PASSWORD_1 }}
@@ -44,6 +45,7 @@ jobs:
           SITE_PASSWORD_3: ${{ secrets.SITE_PASSWORD_3 }}
           TARGET_LINK: ${{ inputs.link }}
         run: python retry_link.py
+
       - name: Commit state
         if: always()
         run: |
