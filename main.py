@@ -11,6 +11,7 @@ from browser_sender import BrowserSender
 from processing_state import (
     MAX_FAILURES_PER_LINK,
     MAX_SUCCESSES_PER_LINK,
+    PREVIOUS_BATCH_SUCCESS_TARGET,
     can_process,
     load_failures,
     load_successes,
@@ -106,30 +107,45 @@ def run_browser_send(sender, links):
     failures = 0
     processed_count = 0
     for link in links:
-        log(f"معالجة الرابط مرة واحدة في هذه الدفعة: {link}")
+        log(f"معالجة الرابط الجديد حتى {MAX_SUCCESSES_PER_LINK} نجاحات: {link}")
         processed_count += 1
-        try:
-            status = sender(link)
-        except Exception as error:
-            log(f"⚠️ تعذر تنفيذ الرابط ({type(error).__name__}: {error})")
-            status = "fail"
-        if status == "ok":
-            _, result = record_result(link, status, STATE_DIR)
-            log(f"✅ نجح الرابط: {load_successes(STATE_DIR).get(link, 0)}/{MAX_SUCCESSES_PER_LINK}.")
-        elif status == "fatal":
-            log("⏹️ توقف: تحقق من بيانات الدخول أو الرصيد.")
-            failures += 1
+        fatal_stop = False
+        while True:
+            successes = load_successes(STATE_DIR)
+            attempts = load_failures(STATE_DIR)
+            if successes.get(link, 0) >= MAX_SUCCESSES_PER_LINK:
+                break
+            if attempts.get(link, 0) >= MAX_FAILURES_PER_LINK:
+                log(f"🚫 تم تخطي الرابط بعد {MAX_FAILURES_PER_LINK} إخفاقات.")
+                break
+            try:
+                status = sender(link)
+            except Exception as error:
+                log(f"⚠️ تعذر تنفيذ الرابط ({type(error).__name__}: {error})")
+                status = "fail"
+            if status == "fatal":
+                log("⏹️ توقف: تحقق من بيانات الدخول أو الرصيد.")
+                failures += 1
+                fatal_stop = True
+                break
+            if status == "ok":
+                record_result(link, status, STATE_DIR)
+                count = load_successes(STATE_DIR).get(link, 0)
+                log(f"✅ نجاح الرابط: {count}/{MAX_SUCCESSES_PER_LINK}.")
+            else:
+                _, result = record_result(link, status, STATE_DIR)
+                failures += 1
+                log("⚠️ لم ينجح الطلب عبر الموقع.")
+                if result == "failure_limit":
+                    log(f"🚫 تم تخطي الرابط بعد {MAX_FAILURES_PER_LINK} إخفاقات.")
+                    break
+        if fatal_stop:
             break
-        else:
-            record_result(link, status, STATE_DIR)
-            log("⚠️ لم ينجح الطلب عبر الموقع.")
-            failures += 1
     remove_from_queue(links[:processed_count])
-    log(f"انتهى التشغيل بعد معالجة {processed_count} روابط.")
+    log(f"انتهى التشغيل بعد معالجة {processed_count} روابط جديدة.")
     return 1 if failures else 0
 
-
-def run_previous_links_until_seven(sender, state_dir=None):
+def run_previous_links_until_three(sender, state_dir=None):
     """إعادة دفع الروابط السابقة عند عدم ظهور روابط جديدة، مثل الجنوب."""
     state_dir = STATE_DIR if state_dir is None else state_dir
     processed_path = os.path.join(state_dir, "processed_links.txt")
@@ -144,21 +160,21 @@ def run_previous_links_until_seven(sender, state_dir=None):
     ))
     eligible = [
         link for link in all_links
-        if can_process(link, state_dir, successes, attempts)
+        if can_process(link, state_dir, successes, attempts, PREVIOUS_BATCH_SUCCESS_TARGET)
     ]
     if not eligible:
         log("💤 لا توجد روابط سابقة مؤهلة للدفع.")
         return 0
 
     max_tries = 5
-    log(f"🔁 لا توجد روابط جديدة؛ استكمال الروابط السابقة حتى {MAX_SUCCESSES_PER_LINK} نجاحات.")
+    log(f"🔁 لا توجد روابط جديدة؛ استكمال الروابط السابقة حتى {PREVIOUS_BATCH_SUCCESS_TARGET} نجاحات.")
     failures = 0
     tries = 0
     for link in eligible:
         if tries >= max_tries:
             break
         tries += 1
-        log(f"معالجة سابقة ({successes.get(link, 0)}/{MAX_SUCCESSES_PER_LINK} نجاح): {link}")
+        log(f"معالجة سابقة ({successes.get(link, 0)}/{PREVIOUS_BATCH_SUCCESS_TARGET} نجاح): {link}")
         try:
             status = sender(link)
         except Exception as error:
@@ -171,7 +187,7 @@ def run_previous_links_until_seven(sender, state_dir=None):
         if status == "ok":
             _, result = record_result(link, status, state_dir, successes, attempts)
             if result == "success":
-                log(f"✅ نجاح الرابط: {successes[link]}/{MAX_SUCCESSES_PER_LINK}.")
+                log(f"✅ نجاح الرابط: {successes[link]}/{PREVIOUS_BATCH_SUCCESS_TARGET}.")
         else:
             _, result = record_result(link, status, state_dir, successes, attempts)
             failures += 1
@@ -208,7 +224,7 @@ def main():
     with BrowserSender(username, password) as sender:
         has_new_links = any(link not in processed_before_pull for link in links)
         if fetch_failed or not has_new_links:
-            return run_previous_links_until_seven(sender)
+            return run_previous_links_until_three(sender)
         return run_browser_send(sender, links)
 
 

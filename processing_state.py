@@ -4,6 +4,7 @@ import os
 import tempfile
 
 MAX_SUCCESSES_PER_LINK = 7
+PREVIOUS_BATCH_SUCCESS_TARGET = 3
 MAX_FAILURES_PER_LINK = 3
 
 
@@ -75,12 +76,12 @@ def is_legacy_complete(link, state_dir):
     return link in set(read_lines(_path(state_dir, "done_links.txt")))
 
 
-def can_process(link, state_dir, successes=None, failures=None):
+def can_process(link, state_dir, successes=None, failures=None, success_target=MAX_SUCCESSES_PER_LINK):
     successes = load_successes(state_dir) if successes is None else successes
     failures = load_failures(state_dir) if failures is None else failures
     return (
         not is_legacy_complete(link, state_dir)
-        and successes.get(link, 0) < MAX_SUCCESSES_PER_LINK
+        and successes.get(link, 0) < success_target
         and failures.get(link, 0) < MAX_FAILURES_PER_LINK
     )
 
