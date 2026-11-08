@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 
-MAX_SUCCESSES_PER_LINK = 5
+MAX_SUCCESSES_PER_LINK = 7
 MAX_FAILURES_PER_LINK = 3
 
 

@@ -24,7 +24,9 @@ class BatchProcessingTests(unittest.TestCase):
         self.old_paths = (
             main.LINKS_PATH,
             main.PROCESSED_PATH,
+            main.STATE_DIR,
         )
+        main.STATE_DIR = self.state
         main.LINKS_PATH = os.path.join(self.state, "telegram_links.txt")
         main.PROCESSED_PATH = os.path.join(self.state, "processed_links.txt")
         for path in (main.LINKS_PATH, main.PROCESSED_PATH):
@@ -34,6 +36,7 @@ class BatchProcessingTests(unittest.TestCase):
         (
             main.LINKS_PATH,
             main.PROCESSED_PATH,
+            main.STATE_DIR,
         ) = self.old_paths
         self.temp.cleanup()
 
@@ -44,6 +47,8 @@ class BatchProcessingTests(unittest.TestCase):
         sender = FakeSender()
         self.assertEqual(main.run_browser_send(sender, selected), 0)
         self.assertEqual(sender.calls, batch)
+        counts = load_successes(self.state)
+        self.assertEqual([counts[link] for link in batch], [1] * len(batch))
         self.assertEqual(main.read_lines(main.LINKS_PATH), [])
 
     def test_next_run_processes_only_new_links_not_previous_batch(self):
@@ -101,19 +106,19 @@ class BatchProcessingTests(unittest.TestCase):
         self.assertEqual(main.run_browser_send(resumed, fallback), 0)
         self.assertEqual(resumed.calls, [batch[1]])
 
-    def test_previous_links_repeat_until_five_successes_when_no_new_links(self):
+    def test_previous_links_repeat_until_seven_successes_when_no_new_links(self):
         link = "https://t.me/muen2025/41"
         with open(os.path.join(self.state, "processed_links.txt"), "w", encoding="utf-8") as file:
             file.write(link + "\n")
 
-        for expected_successes in range(1, 6):
+        for expected_successes in range(1, 8):
             sender = FakeSender()
-            self.assertEqual(main.run_previous_links_until_five(sender, self.state), 0)
+            self.assertEqual(main.run_previous_links_until_seven(sender, self.state), 0)
             self.assertEqual(sender.calls, [link])
             self.assertEqual(load_successes(self.state)[link], expected_successes)
 
         finished = FakeSender()
-        self.assertEqual(main.run_previous_links_until_five(finished, self.state), 0)
+        self.assertEqual(main.run_previous_links_until_seven(finished, self.state), 0)
         self.assertEqual(finished.calls, [])
 
 

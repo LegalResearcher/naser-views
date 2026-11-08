@@ -114,12 +114,14 @@ def run_browser_send(sender, links):
             log(f"⚠️ تعذر تنفيذ الرابط ({type(error).__name__}: {error})")
             status = "fail"
         if status == "ok":
-            log("✅ نجح الرابط.")
+            _, result = record_result(link, status, STATE_DIR)
+            log(f"✅ نجح الرابط: {load_successes(STATE_DIR).get(link, 0)}/{MAX_SUCCESSES_PER_LINK}.")
         elif status == "fatal":
             log("⏹️ توقف: تحقق من بيانات الدخول أو الرصيد.")
             failures += 1
             break
         else:
+            record_result(link, status, STATE_DIR)
             log("⚠️ لم ينجح الطلب عبر الموقع.")
             failures += 1
     remove_from_queue(links[:processed_count])
@@ -127,7 +129,7 @@ def run_browser_send(sender, links):
     return 1 if failures else 0
 
 
-def run_previous_links_until_five(sender, state_dir=None):
+def run_previous_links_until_seven(sender, state_dir=None):
     """إعادة دفع الروابط السابقة عند عدم ظهور روابط جديدة، مثل الجنوب."""
     state_dir = STATE_DIR if state_dir is None else state_dir
     processed_path = os.path.join(state_dir, "processed_links.txt")
@@ -206,7 +208,7 @@ def main():
     with BrowserSender(username, password) as sender:
         has_new_links = any(link not in processed_before_pull for link in links)
         if fetch_failed or not has_new_links:
-            return run_previous_links_until_five(sender)
+            return run_previous_links_until_seven(sender)
         return run_browser_send(sender, links)
 
 
