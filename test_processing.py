@@ -46,9 +46,9 @@ class BatchProcessingTests(unittest.TestCase):
             selected = main.pull_once()
         sender = FakeSender()
         self.assertEqual(main.run_browser_send(sender, selected), 0)
-        self.assertEqual(sender.calls, [link for link in batch for _ in range(7)])
+        self.assertEqual(sender.calls, [link for link in batch for _ in range(10)])
         counts = load_successes(self.state)
-        self.assertEqual([counts[link] for link in batch], [7] * len(batch))
+        self.assertEqual([counts[link] for link in batch], [10] * len(batch))
         self.assertEqual(main.read_lines(main.LINKS_PATH), [])
 
     def test_next_run_processes_only_new_links_not_previous_batch(self):
@@ -58,13 +58,13 @@ class BatchProcessingTests(unittest.TestCase):
             selected_first = main.pull_once()
         first_sender = FakeSender()
         main.run_browser_send(first_sender, selected_first)
-        self.assertEqual(first_sender.calls, [link for link in first for _ in range(7)])
+        self.assertEqual(first_sender.calls, [link for link in first for _ in range(10)])
         with patch.object(main, "fetch_links", return_value=first + second):
             selected_second = main.pull_once()
         self.assertEqual(selected_second, second)
         sender = FakeSender()
         self.assertEqual(main.run_browser_send(sender, selected_second), 0)
-        self.assertEqual(sender.calls, [link for link in second for _ in range(7)])
+        self.assertEqual(sender.calls, [link for link in second for _ in range(10)])
 
     def test_no_new_posts_does_not_replay_completed_links(self):
         batch = ["https://t.me/muen2025/11", "https://t.me/muen2025/12"]
@@ -72,7 +72,7 @@ class BatchProcessingTests(unittest.TestCase):
             first_selection = main.pull_once()
         sender = FakeSender()
         self.assertEqual(main.run_browser_send(sender, first_selection), 0)
-        self.assertEqual(sender.calls, [link for link in batch for _ in range(7)])
+        self.assertEqual(sender.calls, [link for link in batch for _ in range(10)])
         with patch.object(main, "fetch_links", return_value=batch):
             self.assertEqual(main.pull_once(), [])
 
@@ -89,7 +89,7 @@ class BatchProcessingTests(unittest.TestCase):
         self.assertEqual(pending, batch[1:])
         resumed = FakeSender()
         self.assertEqual(main.run_browser_send(resumed, pending), 0)
-        self.assertEqual(resumed.calls, [link for link in batch[1:] for _ in range(7)])
+        self.assertEqual(resumed.calls, [link for link in batch[1:] for _ in range(10)])
 
     def test_no_new_links_returns_unattempted_queue_for_fallback_processing(self):
         batch = ["https://t.me/muen2025/31", "https://t.me/muen2025/32"]
@@ -104,7 +104,7 @@ class BatchProcessingTests(unittest.TestCase):
         self.assertEqual(fallback, [batch[1]])
         resumed = FakeSender()
         self.assertEqual(main.run_browser_send(resumed, fallback), 0)
-        self.assertEqual(resumed.calls, [batch[1]] * 7)
+        self.assertEqual(resumed.calls, [batch[1]] * 10)
 
     def test_previous_links_repeat_until_three_successes_when_no_new_links(self):
         link = "https://t.me/muen2025/41"
